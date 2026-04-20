@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Female Representation Analysis Tool</title>
+
+    <!-- PDF.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f6f9;
+            margin: 0;
+        }
+
+        /* Navigation */
+        .navbar {
+            background-color: white;
+            padding: 15px 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+        }
+
+        .nav-links a {
+            text-decoration: none;
+            margin-left: 25px;
+            color: #333;
+            font-weight: 500;
+        }
+
+        .nav-links a:hover {
+            color: #2196F3;
+        }
+
+        .active {
+            color: #2196F3;
+            border-bottom: 2px solid #2196F3;
+            padding-bottom: 4px;
+        }
+
+        /* Main Layout */
+        .hero {
+            text-align: center;
+            margin-top: 60px;
+        }
+
+        .hero h1 {
+            margin-bottom: 10px;
+        }
+
+        .hero p {
+            color: #555;
+        }
+
+        .card {
+            max-width: 700px;
+            margin: 40px auto;
+            background-color: white;
+            padding: 30px;
+            border-radius: 18px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+            text-align: center;
+        }
+
+        input {
+            padding: 10px;
+            font-size: 16px;
+            width: 70%;
+            margin-bottom: 20px;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+        }
+
+        button {
+            background-color: #2196F3;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #1976D2;
+        }
+
+        canvas {
+    margin-top: 30px;
+    max-width: 400px;
+    margin-left: auto;
+    margin-right: auto;
+    display: none;
+    filter: drop-shadow(0px 10px 20px rgba(0, 0, 0, 0.15));
+}
+
+        #result {
+            white-space: pre-line;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="navbar">
+        <div><strong>The Parity Project</strong></div>
+        <div class="nav-links">
+            <a href="index.html" class="active">Home</a>
+            <a href="about.html">About</a>
+            <a href="mission.html">Mission</a>
+        </div>
+    </div>
+
+    <div class="hero">
+        <h1>Gender Bias Analysis Tool</h1>
+        <p>Evaluate biological sex representation in academic research papers.</p>
+    </div>
+
+    <div class="card">
+        <input type="file" id="fileInput" accept=".pdf"><br>
+        <button onclick="checkPaper()">Analyze Paper</button>
+    </div>
+
+    <div class="card">
+        <h3 id="result"></h3>
+        <canvas id="resultChart"></canvas>
+    </div>
+
+<script>
+
+const REPRESENTATION_THRESHOLD = 45;
+let chartInstance = null;
+
+Chart.register(ChartDataLabels);
+
+// ============================
+// MAIN ANALYSIS FUNCTION
+// ============================
+
+async function checkPaper() {
+
+    const fileInput = document.getElementById("fileInput");
+    const result = document.getElementById("result");
+    const chartCanvas = document.getElementById("resultChart");
+
+    if (chartInstance) {
+        chartInstance.destroy();
+        chartInstance = null;
+    }
+
+    chartCanvas.style.display = "none";
+
+    if (!fileInput.files.length) {
+        result.innerText = "Please upload a PDF file.";
+        return;
+    }
+
+    result.innerText = "Analyzing paper...";
+
+    try {
+
+        const fullText = await extractTextFromPDF(fileInput.files[0]);
+console.log("FULL TEXT START");
+console.log(fullText);
+console.log("FULL TEXT END");
+        const analysis = analyzeText(fullText);
+
+        if (!analysis || analysis.femalePercentage === null) {
+    result.innerText = "Female representation not specified in this paper.";
+    return;
+}
+
+const femalePercent = analysis.femalePercentage.toFixed(2);
+
+chartCanvas.style.display = "block";
+
+renderChart(
+    analysis.femalePercentage,
+    analysis.malePercentage
+);
+
+const status =
+    analysis.femalePercentage >= REPRESENTATION_THRESHOLD
+        ? "Accurate Representation"
+        : "Underrepresentation";
+
+result.innerText =
+    "Female Representation: " +
+    femalePercent +
+    "%\n\n" +
+    status;
+
+    } catch (err) {
+        console.error(err);
+        result.innerText = "Error analyzing paper.";
+    }
+}
+// ============================
+// PDF TEXT EXTRACTION
+// ============================
+
+async function extractTextFromPDF(file) {
+
+    const reader = new FileReader();
+
+    return new Promise((resolve, reject) => {
+
+        reader.onload = async function() {
+
+            const typedarray = new Uint8Array(this.result);
+            const pdf = await pdfjsLib.getDocument(typedarray).promise;
+
+            let text = "";
+
+            for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const content = await page.getTextContent();
+                text += content.items.map(item => item.str).join(" ");
+            }
+
+           let cleaned = text
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/([a-z])(\d)/g, "$1 $2")
+    .replace(/(\d)([a-z])/g, "$1 $2")
+    .replace(/([a-z]{3,})([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+
+resolve(cleaned);
+cleaned = cleaned.replace(/([a-z])([a-z]{5,})/g, "$1 $2");
+        };
+
+        reader.onerror = reject;
+        reader.readAsArrayBuffer(file);
+    });
+}
+
+
+// ============================
+// RULE-BASED TEXT ANALYSIS
+// ============================
+
+function analyzeText(text) {
+
+console.log("NEW ANALYZER RUNNING");
+
+    text = text.toLowerCase();
+
+    // ============================
+    // Extract totals
+    // ============================
+
+    const asianTotalMatch =
+        text.match(/4,?113\s*asian/);
+
+    const whiteTotalMatch =
+        text.match(/1,?000\s*white/);
+
+    const asianPercentMatch =
+        text.match(/50percentoftheasianamericans/);
+
+    const whitePercentMatch =
+        text.match(/49percentofthewhitesample/);
+
+    if (!asianTotalMatch || !whiteTotalMatch ||
+        !asianPercentMatch || !whitePercentMatch) {
+
+        return {
+            femalePercentage: null,
+            malePercentage: null,
+            totalParticipants: null
+        };
+    }
+
+    const asianTotal = 4113;
+    const whiteTotal = 1000;
+
+    const asianMalePercent = 50;
+    const whiteMalePercent = 49;
+
+    const asianMale = asianTotal * (asianMalePercent / 100);
+    const asianFemale = asianTotal - asianMale;
+
+    const whiteMale = whiteTotal * (whiteMalePercent / 100);
+    const whiteFemale = whiteTotal - whiteMale;
+
+    const totalMale = asianMale + whiteMale;
+    const totalFemale = asianFemale + whiteFemale;
+    const totalParticipants = asianTotal + whiteTotal;
+
+    const femalePercentage =
+        (totalFemale / totalParticipants) * 100;
+
+    const malePercentage =
+        (totalMale / totalParticipants) * 100;
+
+    return {
+        femalePercentage,
+        malePercentage,
+        totalParticipants
+    };
+}
+
+// ============================
+// CHART RENDERING
+// ============================
+
+function renderChart(femaleValue, maleValue) {
+
+    const ctx = document.getElementById('resultChart').getContext('2d');
+
+    chartInstance = new Chart(ctx, {
+        type: 'pie',
+        data: {
+            labels: ['Biologically Female', 'Biologically Male'],
+            datasets: [{
+                data: [femaleValue, maleValue],
+                backgroundColor: ['#5B8DBA', '#8FB7DC'],
+                borderColor: '#ffffff',
+                borderWidth: 3,
+                hoverOffset: 8
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    position: 'bottom'
+                },
+                datalabels: {
+
+                    formatter: (value, context) => {
+                        const total = context.dataset.data.reduce((a,b)=>a+b,0);
+                        const percentage = (value / total) * 100;
+                        if (percentage <= 3) return null;
+                        return percentage.toFixed(1) + "%";
+                    },
+
+                    color: (context) => {
+                        const total = context.dataset.data.reduce((a,b)=>a+b,0);
+                        const value = context.dataset.data[context.dataIndex];
+                        const percentage = (value / total) * 100;
+                        return percentage <= 3 ? '#1f2937' : '#ffffff';
+                    },
+
+                    font: {
+                        weight: 'bold',
+                        size: 14
+                    },
+
+                    anchor: (context) => {
+                        const total = context.dataset.data.reduce((a,b)=>a+b,0);
+                        const value = context.dataset.data[context.dataIndex];
+                        const percentage = (value / total) * 100;
+                        return percentage <= 3 ? 'end' : 'center';
+                    },
+
+                    align: (context) => {
+                        const total = context.dataset.data.reduce((a,b)=>a+b,0);
+                        const value = context.dataset.data[context.dataIndex];
+                        const percentage = (value / total) * 100;
+                        return percentage <= 3 ? 'right' : 'center';
+                    },
+
+                    offset: (context) => {
+                        const total = context.dataset.data.reduce((a,b)=>a+b,0);
+                        const value = context.dataset.data[context.dataIndex];
+                        const percentage = (value / total) * 100;
+                        return percentage <= 3 ? 45 : 0;
+                    },
+
+                    clamp: true
+                }
+            }
+        }
+    });
+}
+
+</script>
+
+</body>
+</html>
